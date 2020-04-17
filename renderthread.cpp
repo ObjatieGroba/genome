@@ -62,11 +62,11 @@ void RenderThread::run()
             double ady = centerY + ((y - halfHeight) * scaleFactor);
             int ay = int(ady);
             scanLine = reinterpret_cast<uint32_t *>(image.scanLine(y)) + startX;
-            if (ady >= 0 && ay < static_cast<int>(board->getH())) {
+            if (ady >= 0 && ay < static_cast<int>(board->getHeight())) {
                 for (int x = startX; x < finishX; ++x) {
                     double adx = centerX + ((x - halfWidth) * scaleFactor);
                     int ax = int(adx);
-                    if (adx >= 0 && ax < static_cast<int>(board->getW())) {
+                    if (adx >= 0 && ax < static_cast<int>(board->getWidth())) {
                         auto cell = board->get(ax, ay);
                         if (board->netrender == 1 && ((ady - static_cast<double>(ay)) < scaleFactor ||
                                                       (adx - static_cast<double>(ax)) < scaleFactor)) {

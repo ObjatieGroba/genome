@@ -20,12 +20,15 @@ ImageW::ImageW(QWidget *parent) :
 {
     ui->setupUi(this);
 
+    board = std::make_shared<Board<Bot>>();
+    board->run_threads(8);
+
     centerX = DefaultCenterX;
     centerY = DefaultCenterY;
     pixmapScale = DefaultScale;
     curScale = DefaultScale;
 
-    thread.setBoard(&board);
+    thread.setBoard(board);
 
     connect(&thread, &RenderThread::renderedImage,
             this, &ImageW::updatePixmap);
@@ -90,62 +93,62 @@ void ImageW::keyPressEvent(QKeyEvent *event)
     case Qt::Key_6:
         steps = 100000;
         for (size_t i = 0; i != steps; ++i) {
-            board.step();
+            board->make_step();
         }
         rerender();
         break;
     case Qt::Key_5:
         steps = 10000;
         for (size_t i = 0; i != steps; ++i) {
-            board.step();
+            board->make_step();
         }
         rerender();
         break;
     case Qt::Key_4:
         steps = 1000;
         for (size_t i = 0; i != steps; ++i) {
-            board.step();
+            board->make_step();
         }
         rerender();
         break;
     case Qt::Key_3:
         steps = 100;
         for (size_t i = 0; i != steps; ++i) {
-            board.step();
+            board->make_step();
         }
         rerender();
         break;
     case Qt::Key_2:
         steps = 10;
         for (size_t i = 0; i != steps; ++i) {
-            board.step();
+            board->make_step();
         }
         rerender();
         break;
     case Qt::Key_1:
         steps = 1;
-        board.step();
+        board->make_step();
         rerender();
         break;
     case Qt::Key_R:
-        ++board.rendertype;
-        board.rendertype %= 4;
+        ++board->rendertype;
+        board->rendertype %= 4;
         rerender();
         break;
     case Qt::Key_W:
-        board.wayrender = !board.wayrender;
+        board->wayrender = !board->wayrender;
         rerender();
         break;
     case Qt::Key_N:
-        ++board.netrender;
-        board.netrender %= 3;
+        ++board->netrender;
+        board->netrender %= 3;
         rerender();
         break;
     case Qt::Key_Q:
-        board.resource_zone = !board.resource_zone;
+        board->resource_zone = !board->resource_zone;
         break;
     case Qt::Key_S:
-        board.stat();
+        board->stat();
         break;
     case Qt::Key_A:
         auto_mode = !auto_mode;
@@ -193,11 +196,11 @@ void ImageW::mousePressEvent(QMouseEvent *event) {
     else if (event->button() == Qt::RightButton) {
         int halfWidth = size().width() / 2;
         int halfHeight = size().height() / 2;
-        auto cell = board.get((event->pos().x() - halfWidth) * curScale + centerX,
-                              (event->pos().y() - halfHeight) * curScale + centerY);
+        auto cell = board->get((event->pos().x() - halfWidth) * curScale + centerX,
+                               (event->pos().y() - halfHeight) * curScale + centerY);
         QSharedPointer<Bot> bot;
         if (cell != None) {
-            bot = board.getBotUnsave(cell);
+            bot = board->getBotUnsave(cell);
             bot->isSelected = true;
         }
         if (auto pp = dynamic_cast<MainWindow *>(parentWidget()->parentWidget()); pp) {
@@ -249,7 +252,7 @@ void ImageW::updatePixmap(const QImage &image, double scaleFactor)
     update();
     if (auto_mode) {
         for (size_t i = 0; i != steps; ++i) {
-            board.step();
+            board->make_step();
         }
         rerender();
     }

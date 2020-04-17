@@ -20,7 +20,7 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-    void updateStats(const Board<Bot> &board);
+    void updateStats(const std::shared_ptr<Board<Bot>> &board);
     QSharedPointer<Bot> updateStatBot(QSharedPointer<Bot> bot);
 
 protected:

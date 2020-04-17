@@ -48,7 +48,7 @@ private:
     double pixmapScale;
     double curScale;
 
-    Board<Bot> board;
+    std::shared_ptr<Board<Bot>> board;
     RenderThread thread;
     unsigned steps = 1;
     bool auto_mode = false;

@@ -68,8 +68,8 @@ public:
     RenderThread(QObject *parent = nullptr);
     ~RenderThread();
 
-    void setBoard(Board<Bot> *p) {
-        board = p;
+    void setBoard(std::shared_ptr<Board<Bot>> p) {
+        board = std::move(p);
     }
 
     void render(double centerX, double centerY, double scaleFactor, QSize resultSize);
@@ -92,7 +92,7 @@ private:
     bool restart;
     bool abort;
 
-    Board<Bot> *board = nullptr;
+    std::shared_ptr<Board<Bot>> board;
 };
 
 #endif // RENDERTHREAD_H

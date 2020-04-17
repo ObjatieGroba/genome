@@ -16,4 +16,5 @@ add_executable(genome ${SOURCES})
 
 find_package(Qt5Widgets REQUIRED)
 
+target_link_libraries(genome pthread)
 target_link_libraries(genome Qt5::Widgets)

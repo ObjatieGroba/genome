@@ -15,7 +15,7 @@ MainWindow::MainWindow(QWidget *parent) :
     setWindowTitle(tr("Kek"));
     setCursor(Qt::CrossCursor);
 
-    ui->widget_2->setData(&ui->widget->board.stat_datas);
+    ui->widget_2->setData(&ui->widget->board->stat_data);
 }
 
 
@@ -25,7 +25,7 @@ MainWindow::~MainWindow()
 }
 
 
-void MainWindow::updateStats(const Board<Bot> &board) {
+void MainWindow::updateStats(const std::shared_ptr<Board<Bot>> &board) {
     if (toStat) {
         ui->textBrowser->setTextColor(QColor("White"));
         ui->textBrowser->setText(QString(toStat->info().c_str()));
