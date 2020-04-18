@@ -92,42 +92,32 @@ void ImageW::keyPressEvent(QKeyEvent *event)
     switch (event->key()) {
     case Qt::Key_6:
         steps = 100000;
-        for (size_t i = 0; i != steps; ++i) {
-            board->make_step();
-        }
+        board->make_steps(steps);
         rerender();
         break;
     case Qt::Key_5:
         steps = 10000;
-        for (size_t i = 0; i != steps; ++i) {
-            board->make_step();
-        }
+        board->make_steps(steps);
         rerender();
         break;
     case Qt::Key_4:
         steps = 1000;
-        for (size_t i = 0; i != steps; ++i) {
-            board->make_step();
-        }
+        board->make_steps(steps);
         rerender();
         break;
     case Qt::Key_3:
         steps = 100;
-        for (size_t i = 0; i != steps; ++i) {
-            board->make_step();
-        }
+        board->make_steps(steps);
         rerender();
         break;
     case Qt::Key_2:
         steps = 10;
-        for (size_t i = 0; i != steps; ++i) {
-            board->make_step();
-        }
+        board->make_steps(steps);
         rerender();
         break;
     case Qt::Key_1:
         steps = 1;
-        board->make_step();
+        board->make_steps(steps);
         rerender();
         break;
     case Qt::Key_R:
@@ -251,9 +241,7 @@ void ImageW::updatePixmap(const QImage &image, double scaleFactor)
     pixmapScale = scaleFactor;
     update();
     if (auto_mode) {
-        for (size_t i = 0; i != steps; ++i) {
-            board->make_step();
-        }
+        board->make_steps(steps);
         rerender();
     }
 }

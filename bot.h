@@ -22,31 +22,31 @@ public:
     }
 
     Bot(const Bot& other, unsigned x_, unsigned y_, unsigned acc) : genome(other.genome), x(x_), y(y_), way(other.way) {
-        if ((rand() % (2 + acc)) == 0) {
-            genome[abs(rand()) % genome.size()] = rand();
+        if ((xorshf96() % (2 + acc)) == 0) {
+            genome[xorshf96() % genome.size()] = xorshf96();
         }
-        if ((rand() % (2 + acc)) == 0) {
-            genome[abs(rand()) % genome.size()] = rand();
+        if ((xorshf96() % (2 + acc)) == 0) {
+            genome[xorshf96() % genome.size()] = xorshf96();
         }
         memory = genome;
     }
 
     Bot(const Bot& other1, const Bot& other2, unsigned x_, unsigned y_, unsigned acc) : x(x_), y(y_), way(other1.way) {
-        int r = 0;
+        unsigned r = 0;
         bool first = false;
         for (unsigned i = 0; i != genome.size(); ++i) {
             if (r == 0) {
-                r = abs(rand()) % genomeSize;
+                r = xorshf96() % genomeSize;
                 first = !first;
             }
             --r;
             genome[i] = first ? other1.genome[i] : other2.genome[i];
         }
-        if ((rand() % (2 + acc)) == 0) {
-            genome[abs(rand()) % genome.size()] = rand();
+        if ((xorshf96() % (2 + acc)) == 0) {
+            genome[xorshf96() % genome.size()] = xorshf96();
         }
-        if ((rand() % (2 + acc)) == 0) {
-            genome[abs(rand()) % genome.size()] = rand();
+        if ((xorshf96() % (2 + acc)) == 0) {
+            genome[xorshf96() % genome.size()] = xorshf96();
         }
         memory = genome;
     }
@@ -288,7 +288,7 @@ public:
     }
 
     template <class Board>
-    void NewBot(Board &board) {
+    void NewBot(Board &board, size_t thread_id) {
         auto acc = memory[(pointer + 1) % memory.size()] % 4;
         ++pointer;
         int need_energy = 100 + 20 + acc * 20;
@@ -300,31 +300,31 @@ public:
         if (saved) {
             switch (way) {
             case Top:
-                board.new_bot(*this, *saved, 0, -1, acc);
+                board.new_bot(thread_id, *this, *saved, 0, -1, acc);
                 break;
             case Right:
-                board.new_bot(*this, *saved, 1, 0, acc);
+                board.new_bot(thread_id, *this, *saved, 1, 0, acc);
                 break;
             case Bottom:
-                board.new_bot(*this, *saved, 0, 1, acc);
+                board.new_bot(thread_id, *this, *saved, 0, 1, acc);
                 break;
             case Left:
-                board.new_bot(*this, *saved, -1, 0, acc);
+                board.new_bot(thread_id, *this, *saved, -1, 0, acc);
                 break;
             }
         } else {
             switch (way) {
             case Top:
-                board.new_bot(*this, 0, -1, acc);
+                board.new_bot(thread_id, *this, 0, -1, acc);
                 break;
             case Right:
-                board.new_bot(*this, 1, 0, acc);
+                board.new_bot(thread_id, *this, 1, 0, acc);
                 break;
             case Bottom:
-                board.new_bot(*this, 0, 1, acc);
+                board.new_bot(thread_id, *this, 0, 1, acc);
                 break;
             case Left:
-                board.new_bot(*this, -1, 0, acc);
+                board.new_bot(thread_id, *this, -1, 0, acc);
                 break;
             }
         }
@@ -599,7 +599,7 @@ public:
     }
 
     template <class Board>
-    void Step(Board &board) {
+    void Step(Board &board, size_t thread_id) {
         if (!isAlive()) {
             return;
         }
@@ -644,7 +644,7 @@ public:
                 EatFront(board);
                 return;
             case 7: /// New bot
-                NewBot(board);
+                NewBot(board, thread_id);
                 return;
             case 8: /// Check Energy. NeedEergy NotJmp Yes
                 CheckEnergy();

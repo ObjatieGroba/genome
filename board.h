@@ -3,7 +3,6 @@
 
 #include <vector>
 #include <limits>
-#include <random>
 #include <iostream>
 #include <mutex>
 #include <graphic.h>
@@ -15,6 +14,8 @@
 enum {
     None = std::numeric_limits<unsigned>::max(),
 };
+
+unsigned long xorshf96();
 
 constexpr auto kStatPeriod = 100;
 constexpr auto kStatAlive = 0;
@@ -28,8 +29,8 @@ public:
     Board() : data(BoardWidth * BoardWidth, None) {
         static_assert(BoardWidth % MutexLockWidth == 0);
         for (unsigned i = 0; i != BoardWidth * BoardWidth / 16; ++i) {
-            unsigned x = rand();
-            unsigned y = rand();
+            unsigned x = xorshf96();
+            unsigned y = xorshf96();
             x %= BoardWidth;
             y %= BoardWidth;
             if (get(x, y) != None) {
@@ -37,13 +38,26 @@ public:
             }
             get(x, y) = bots.size();
             bots.push_back(QSharedPointer<Bot>::create(x, y));
-            bots.back()->way = abs(rand()) % 4;
+            bots.back()->way = xorshf96() % 4;
         }
         stat_data.emplace_back("Alive bots");
         stat_data.emplace_back("Bots per second");
         for (unsigned i = 0; i != Bot::ComandsNum; ++i) {
             stat_data.emplace_back(Bot::ComandNames[i] + (" (" + std::to_string(i) + ")"));
             stat_data.back().push(0);
+        }
+    }
+
+    ~Board() {
+        killed = true;
+        std::unique_lock lock(main_mx);
+        running_threads += threads.size();
+        cv_start.notify_all();
+        while (killed) {
+            cv_finish.wait(lock);
+        }
+        for (auto && thread : threads) {
+            thread.join();
         }
     }
 
@@ -54,7 +68,8 @@ public:
         std::unique_lock main_lock(main_mx);
         auto self = this->shared_from_this();
         while (num-- > 0) {
-            threads.emplace_back([self]() {
+            new_bots.emplace_back();
+            threads.emplace_back([self, thread_id=threads.size()]() {
                 std::unique_lock main_lock(self->main_mx);
                 while (true) {
                     while (!self->killed && self->tasks.empty()) {
@@ -67,38 +82,35 @@ public:
                     self->tasks.pop_back();
                     ++self->running_threads;
                     main_lock.unlock();
-
-                    size_t start_height = 0;
-                    size_t wmutex = start_width / MutexLockWidth;
-                    size_t hmutex = start_height / MutexLockWidth;
-                    size_t wmutex2 = wmutex + 1;
-                    if (wmutex2 == self->mxs.size()) {
-                        wmutex2 = 0;
-                    }
-                    self->mxs[wmutex][hmutex].lock();
-                    self->mxs[wmutex2][hmutex].lock();
-                    while (start_height < BoardWidth) {
-                        self->mxs[wmutex][(hmutex + 1) % self->mxs.size()].lock();
-                        self->mxs[wmutex2][(hmutex + 1) % self->mxs.size()].lock();
-                        for (size_t i = 0; i != MutexLockWidth; ++i) {
-                            for (size_t j = 0; j != MutexLockWidth; ++j) {
-                                auto id = self->get(start_width + i, start_height + j);
-                                if (id != None) {
-                                    self->bots[id]->Step(*self);
+                    {
+                        size_t start_height = 0;
+                        size_t wmutex = start_width / MutexLockWidth;
+                        size_t wmutex2 = wmutex + 1;
+                        if (wmutex2 == self->mxs.size()) {
+                            wmutex2 = 0;
+                        }
+                        std::unique_lock lock1(self->mxs[wmutex]);
+                        std::unique_lock lock2(self->mxs[wmutex2]);
+                        while (start_height < BoardWidth) {
+                            for (size_t i = 0; i != MutexLockWidth; ++i) {
+                                for (size_t j = 0; j != MutexLockWidth; ++j) {
+                                    auto id = self->get(start_width + i, start_height + j);
+                                    if (id != None) {
+                                        self->bots[id]->Step(*self, thread_id);
+                                    }
                                 }
                             }
+                            start_height += MutexLockWidth;
                         }
-                        self->mxs[wmutex][hmutex % self->mxs.size()].unlock();
-                        self->mxs[wmutex2][hmutex % self->mxs.size()].unlock();
-                        ++hmutex;
-                        start_height += MutexLockWidth;
                     }
-                    self->mxs[wmutex][hmutex % self->mxs.size()].unlock();
-                    self->mxs[wmutex2][hmutex % self->mxs.size()].unlock();
                     main_lock.lock();
                     if (--self->running_threads == 0) {
                         self->cv_finish.notify_one();
                     }
+                }
+                if (--self->running_threads == 0) {
+                    self->killed = false;
+                    self->cv_finish.notify_one();
                 }
             });
         }
@@ -120,20 +132,28 @@ public:
         return BoardWidth;
     }
 
-    void make_steps(size_t num=1) {
-        while (num-- > 0) {
-            make_step();
+    void make_steps(size_t num) {
+        while (num > 0) {
+            auto cur = num;
+            auto max = kStatPeriod - steps % kStatPeriod;
+            if (cur > max) {
+                cur = max;
+            }
+            make_steps_(cur);
+            num -= cur;
         }
     }
 
-    void make_step() {
+    void make_steps_(size_t num) {
         std::unique_lock main_lock(main_mx);
         auto start_time = std::chrono::system_clock::now();
-        for (size_t i = 0; i < BoardWidth; i += 2 * MutexLockWidth) {
-            tasks.push_back(i);
-        }
-        for (size_t i = MutexLockWidth; i < BoardWidth; i += 2 * MutexLockWidth) {
-            tasks.push_back(i);
+        for (size_t j = 0; j != num; ++j) {
+            for (size_t i = 0; i < BoardWidth; i += 2 * MutexLockWidth) {
+                tasks.push_back(i);
+            }
+            for (size_t i = MutexLockWidth; i < BoardWidth; i += 2 * MutexLockWidth) {
+                tasks.push_back(i);
+            }
         }
         cv_start.notify_all();
         while (!tasks.empty()) {
@@ -148,27 +168,29 @@ public:
         if (num_of_not_alive * 2 > bots.size()) {
             comperess();
         }
-        for (auto && bot : new_bots) {
-            if (get(bot->x, bot->y) != None) {
-                continue;
+        for (auto && nbots : new_bots) {
+            for (auto && bot : nbots) {
+                if (get(bot->x, bot->y) != None) {
+                    continue;
+                }
+                get(bot->x, bot->y) = bots.size();
+                bots.push_back(bot);
             }
-            get(bot->x, bot->y) = bots.size();
-            bots.push_back(bot);
+            nbots.clear();
         }
-        new_bots.clear();
         auto end_time = std::chrono::system_clock::now();
+        steps += num;
         if (steps % kStatPeriod == 0) {
             auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
             if (diff == 0) {
                 diff = 1;
             }
-            stat_data[kStatBPS].push(1000000000 * (bots.size() - num_of_not_alive) / diff);
+            stat_data[kStatBPS].push(num * 1000000000 * (bots.size() - num_of_not_alive) / diff);
             stat_data[kStatAlive].push(bots.size() - num_of_not_alive);
             for (unsigned i = 0; i != Bot::ComandsNum; ++i) {
                 stat_data[kStatNum + i].push(Bot::getStat(i) / kStatPeriod);
             }
         }
-        ++steps;
     }
 
     void stat() {
@@ -233,22 +255,22 @@ public:
         bot.y = new_y;
     }
 
-    void new_bot(const Bot &bot, int dx, int dy, unsigned char acc) {
+    void new_bot(size_t thread_id, const Bot &bot, int dx, int dy, unsigned char acc) {
         unsigned new_x = (bot.x + dx) % BoardWidth;
         unsigned new_y = (bot.y + dy) % BoardWidth;
         if (get(new_x, new_y) != None) {
             return;
         }
-        new_bots.push_back(QSharedPointer<Bot>::create(bot, new_x, new_y, acc));
+        new_bots[thread_id].push_back(QSharedPointer<Bot>::create(bot, new_x, new_y, acc));
     }
 
-    void new_bot(const Bot &bot1, const Bot &bot2, int dx, int dy, unsigned char acc) {
+    void new_bot(size_t thread_id, const Bot &bot1, const Bot &bot2, int dx, int dy, unsigned char acc) {
         unsigned new_x = (bot1.x + dx) % BoardWidth;
         unsigned new_y = (bot1.y + dy) % BoardWidth;
         if (get(new_x, new_y) != None) {
             return;
         }
-        new_bots.push_back(QSharedPointer<Bot>::create(bot1, bot2, new_x, new_y, acc));
+        new_bots[thread_id].push_back(QSharedPointer<Bot>::create(bot1, bot2, new_x, new_y, acc));
     }
 
     auto& getBot(unsigned bot_id) {
@@ -269,7 +291,7 @@ public:
     unsigned syntes(Bot &bot) {
         unsigned state = dist(2 * BoardWidth / 5, BoardWidth / 2, bot.x, bot.y);
         if (!resource_zone || state > BoardWidth / 8) {
-            return abs(rand()) % 3;
+            return xorshf96() % 3;
         } else {
             return std::min(3 * (BoardWidth / 8 - state), 30ul);
         }
@@ -278,7 +300,7 @@ public:
     unsigned minerals(Bot &bot) {
         unsigned state = dist(3 * BoardWidth / 5, BoardWidth / 2, bot.x, bot.y);
         if (!resource_zone || state > BoardWidth / 8) {
-            return abs(rand()) % 2;
+            return xorshf96() % 2;
         } else {
             return 10;
         }
@@ -299,10 +321,8 @@ public:
 private:
     std::vector<unsigned> data;
     std::vector<QSharedPointer<Bot>> bots;
-    std::vector<QSharedPointer<Bot>> new_bots;
 
-    std::array<std::array<std::mutex, BoardWidth / MutexLockWidth>,
-               BoardWidth / MutexLockWidth> mxs;
+    std::array<std::mutex, BoardWidth / MutexLockWidth> mxs;
     std::mutex main_mx;
     std::condition_variable cv_start;
     std::condition_variable cv_finish;
@@ -310,6 +330,8 @@ private:
     size_t running_threads = 0;
     bool killed = false;
     std::vector<size_t> tasks;
+
+    std::vector<std::vector<QSharedPointer<Bot>>> new_bots;
 
     unsigned steps = 0;
 };
