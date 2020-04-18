@@ -9,9 +9,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-include_directories(.)
+include_directories(src)
 
-file(GLOB SOURCES *.cpp *.ui)
+file(GLOB SOURCES src/*.cpp src/*.ui)
 add_executable(genome ${SOURCES})
 
 find_package(Qt5Widgets REQUIRED)
