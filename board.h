@@ -63,7 +63,7 @@ public:
 
     void run_threads(size_t num) {
         if (num > BoardWidth / MutexLockWidth / 2) {
-            std::cerr << "Too many threads";
+            std::cerr << "Too many threads\n";
         }
         std::unique_lock main_lock(main_mx);
         auto self = this->shared_from_this();
@@ -134,26 +134,19 @@ public:
 
     void make_steps(size_t num) {
         while (num > 0) {
-            auto cur = num;
-            auto max = kStatPeriod - steps % kStatPeriod;
-            if (cur > max) {
-                cur = max;
-            }
-            make_steps_(cur);
-            num -= cur;
+            make_steps_();
+            num -= 1;
         }
     }
 
-    void make_steps_(size_t num) {
+    void make_steps_() {
         std::unique_lock main_lock(main_mx);
         auto start_time = std::chrono::system_clock::now();
-        for (size_t j = 0; j != num; ++j) {
-            for (size_t i = 0; i < BoardWidth; i += 2 * MutexLockWidth) {
-                tasks.push_back(i);
-            }
-            for (size_t i = MutexLockWidth; i < BoardWidth; i += 2 * MutexLockWidth) {
-                tasks.push_back(i);
-            }
+        for (size_t i = 0; i < BoardWidth; i += 2 * MutexLockWidth) {
+            tasks.push_back(i);
+        }
+        for (size_t i = MutexLockWidth; i < BoardWidth; i += 2 * MutexLockWidth) {
+            tasks.push_back(i);
         }
         cv_start.notify_all();
         while (!tasks.empty()) {
@@ -179,18 +172,18 @@ public:
             nbots.clear();
         }
         auto end_time = std::chrono::system_clock::now();
-        steps += num;
         if (steps % kStatPeriod == 0) {
             auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
             if (diff == 0) {
                 diff = 1;
             }
-            stat_data[kStatBPS].push(num * 1000000000 * (bots.size() - num_of_not_alive) / diff);
+            stat_data[kStatBPS].push(1000000000 * (bots.size() - num_of_not_alive) / diff);
             stat_data[kStatAlive].push(bots.size() - num_of_not_alive);
             for (unsigned i = 0; i != Bot::ComandsNum; ++i) {
                 stat_data[kStatNum + i].push(Bot::getStat(i) / kStatPeriod);
             }
         }
+        ++steps;
     }
 
     void stat() {
@@ -304,6 +297,10 @@ public:
         } else {
             return 10;
         }
+    }
+
+    auto get_current_time() {
+        return steps;
     }
 
 public:

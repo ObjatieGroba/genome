@@ -122,7 +122,7 @@ void ImageW::keyPressEvent(QKeyEvent *event)
         break;
     case Qt::Key_R:
         ++board->rendertype;
-        board->rendertype %= 4;
+        board->rendertype %= 5;
         rerender();
         break;
     case Qt::Key_W:

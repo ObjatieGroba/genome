@@ -232,6 +232,16 @@ void RenderThread::run()
                             *scanLine = qRgb(0, 0, r);
                             break;
                         }
+                        case 4:
+                        {
+                            unsigned msg_time_diff = board->get_current_time() - bot->last_msg_time;
+                            if (msg_time_diff > 255) {
+                                msg_time_diff = 255;
+                            }
+                            msg_time_diff = 255 - msg_time_diff;
+                            *scanLine = qRgb(0, msg_time_diff, 0);
+                            break;
+                        }
                         }
                     }
                     ++scanLine;

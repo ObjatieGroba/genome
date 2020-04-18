@@ -11,7 +11,7 @@ set(CMAKE_AUTORCC ON)
 
 include_directories(.)
 
-file(GLOB SOURCES *.cpp)
+file(GLOB SOURCES *.cpp *.ui)
 add_executable(genome ${SOURCES})
 
 find_package(Qt5Widgets REQUIRED)

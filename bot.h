@@ -21,13 +21,24 @@ public:
         memory = genome;
     }
 
+private:
+    void mutate(unsigned acc) {
+        auto curr = 2 + acc;
+        while ((xorshf96() % curr) == 0) {
+            auto point = xorshf96();
+            genome[point % genome.size()] = xorshf96();
+            if (xorshf96() % (2 + acc) == 0) {
+                ++point;
+                genome[point % genome.size()] = xorshf96();
+            }
+            curr += 2;
+        }
+    }
+
+public:
+
     Bot(const Bot& other, unsigned x_, unsigned y_, unsigned acc) : genome(other.genome), x(x_), y(y_), way(other.way) {
-        if ((xorshf96() % (2 + acc)) == 0) {
-            genome[xorshf96() % genome.size()] = xorshf96();
-        }
-        if ((xorshf96() % (2 + acc)) == 0) {
-            genome[xorshf96() % genome.size()] = xorshf96();
-        }
+        mutate(acc);
         memory = genome;
     }
 
@@ -42,12 +53,7 @@ public:
             --r;
             genome[i] = first ? other1.genome[i] : other2.genome[i];
         }
-        if ((xorshf96() % (2 + acc)) == 0) {
-            genome[xorshf96() % genome.size()] = xorshf96();
-        }
-        if ((xorshf96() % (2 + acc)) == 0) {
-            genome[xorshf96() % genome.size()] = xorshf96();
-        }
+        mutate(acc);
         memory = genome;
     }
 
@@ -188,6 +194,7 @@ public:
         auto & bot = board.getBot(*data);
         if (bot->isAlive() && bot->energy > 255) {
             bot->energy -= 255;
+            bot->last_under_attack = board.get_current_time();
             return;
         }
         minerals += bot->minerals;
@@ -255,6 +262,7 @@ public:
         energy -= 1;
         if (energy > 0) {
             board.getBot(*data)->msgs[way] = memory[(pointer + 1) % memory.size()];
+            board.getBot(*data)->last_msg_time = board.get_current_time();
         }
         ++pointer;
     }
@@ -374,7 +382,7 @@ public:
         ++pointer;
         pointer %= memory.size();
         auto mway = memory[pointer] % 4;
-        if (msgs[mway] >> CHAR_BIT != 0) {
+        if ((msgs[mway] >> CHAR_BIT) != 0) {
             pointer += 1;
         } else {
             pointer += memory[(pointer + 1) % memory.size()];
@@ -409,6 +417,18 @@ public:
         ++pointer;
         pointer %= memory.size();
         if (lastSyntes > memory[pointer]) {
+            pointer += 1;
+        } else {
+            pointer += memory[(pointer + 1) % memory.size()];
+        }
+    }
+
+    template <class Board>
+    void CheckAttack(Board &board) {
+        ++pointer;
+        pointer %= memory.size();
+        auto diff = board.get_current_time() - last_under_attack;
+        if (diff > (memory[pointer]) % 4) {
             pointer += 1;
         } else {
             pointer += memory[(pointer + 1) % memory.size()];
@@ -546,7 +566,7 @@ public:
         type = 2;
     }
 
-    static constexpr unsigned ComandsNum = 37;
+    static constexpr unsigned ComandsNum = 38;
     static constexpr unsigned MaxAge = 1u << 13;
     static constexpr unsigned MaxDepth = 32;
     static constexpr unsigned genomeSize = 64;
@@ -590,6 +610,7 @@ public:
         "CheckLastSyn",
         "CheckLastMin",
         "ReadMsg",
+        "CheckWasAttacked",
     };
 
     static auto getStat(unsigned i) {
@@ -676,7 +697,7 @@ public:
             case 17:
                 CheckAge();
                 break;
-            case 18: /// Check Minerals. NeedEergy NotJmp Yes
+            case 18: /// Check Minerals. NeedEnergy NotJmp Yes
                 CheckMinerals();
                 break;
             case 19:
@@ -723,6 +744,9 @@ public:
             case 36:
                 ReadMsg();
                 break;
+            case 37:
+                CheckAttack(board);
+                break;
             }
         }
     }
@@ -750,6 +774,9 @@ public:
     unsigned lastMinerals;
 
     std::array<unsigned short, 4> msgs{};
+    unsigned last_msg_time = 0;
+
+    unsigned last_under_attack = 0;
 
     bool alive = true;
     bool isSelected = false;
