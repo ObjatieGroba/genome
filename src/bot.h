@@ -567,7 +567,7 @@ public:
     }
 
     static constexpr unsigned ComandsNum = 38;
-    static constexpr unsigned MaxAge = 1u << 13;
+    static constexpr unsigned MaxAge = 1u << 13u;
     static constexpr unsigned MaxDepth = 32;
     static constexpr unsigned genomeSize = 64;
     static constexpr unsigned memorySize = genomeSize;
@@ -759,7 +759,8 @@ public:
     // std::array<unsigned char, 32> genome{4, 10, 3, 8, 250, 6, 7, 2, 18, 8, 9, 1, 5, 11, 9, 9, 9, 9, 9, 8, 10, 9, 1, 12, 11, 4, 9, 13, 10, 6, 7, 2};
     // std::array<unsigned char, 32> genome{4, 10, 3, 8, 250, 6, 7, 2, 18, 8, 9, 1, 5, 11, 9, 9, 9, 11, 9, 8, 10, 9, 1, 12, 11, 4, 9, 13, 10, 6, 7, 2};
     // std::array<unsigned char, 32> genome{4, 10, 3, 8, 250, 6, 7, 2, 18, 8, 9, 1, 5, 11, 9, 9, 9, 9, 9, 8, 10, 9, 1, 12, 11, 4, 9, 13, 10, 6, 7, 2};
-    std::array<unsigned char, genomeSize> genome{4,2,17,8,250,5,7,3,5,18,9,1,5,11,9,9,9,9,9,6,2,9,11,11,11,11,9,9,9,9,1,9,16,0};
+    std::array<unsigned char, genomeSize> genome{14, 9, 242, 8, 215, 14, 7, 194, 56, 77, 9, 221, 73, 90, 249, 62, 89, 120, 34, 116, 52, 54, 11, 11, 163, 85, 9, 11, 91, 146, 173, 163, 16, 222, 193, 213, 98, 86, 195, 241, 80, 228, 39, 163, 81, 112, 93, 134, 30, 78, 42, 77, 155, 21, 95, 245, 11, 140, 188, 205, 213, 215, 150, 39};
+//    std::array<unsigned char, genomeSize> genome{4,2,17,8,250,5,7,3,5,18,9,1,5,11,9,9,9,9,9,6,2,9,11,11,11,11,9,9,9,9,1,9,16,0};
     std::array<unsigned char, memorySize> memory;
     unsigned x;
     unsigned y;

@@ -5,7 +5,7 @@
 #include <limits>
 #include <iostream>
 #include <mutex>
-#include <graphic.h>
+#include <src/graphic.h>
 
 #include <QSharedPointer>
 #include <condition_variable>
