@@ -23,12 +23,12 @@ public:
     void updateStats(const std::shared_ptr<Board<Bot>> &board);
     QSharedPointer<Bot> updateStatBot(QSharedPointer<Bot> bot);
 
+    QSharedPointer<Bot> toStat{};
+
 protected:
     void keyPressEvent(QKeyEvent *event) override;
 
 private:
-    QSharedPointer<Bot> toStat{};
-
     Ui::MainWindow *ui;
 };
 

@@ -104,7 +104,7 @@ void RenderThread::run()
                                 ++scanLine;
                                 continue;
                             }
-                            if (!bot->similar(*nbot)) {
+                            if (!bot->isSimilar(*nbot)) {
                                 *scanLine = qRgb(0, 0, 0);
                                 ++scanLine;
                                 continue;
@@ -123,7 +123,7 @@ void RenderThread::run()
                                 ++scanLine;
                                 continue;
                             }
-                            if (!bot->similar(*nbot)) {
+                            if (!bot->isSimilar(*nbot)) {
                                 *scanLine = qRgb(0, 0, 0);
                                 ++scanLine;
                                 continue;

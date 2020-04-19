@@ -17,40 +17,50 @@ enum {
 
 unsigned long xorshf96();
 
-constexpr auto kStatPeriod = 100;
+constexpr auto kStatPeriod = 128;
 constexpr auto kStatAlive = 0;
 constexpr auto kStatBPS = 1;
-constexpr auto kStatNum = 2;
+constexpr auto kStatMutations = 2;
+constexpr auto kStatProcessDepth = 3;
+constexpr auto kStatNum = 4;
+
+unsigned get_thread_id();
+void set_thread_id(unsigned id);
+namespace Stat {
+    void init(unsigned num);
+    void add_threads(unsigned num);
+
+    void inc(unsigned id);
+    void inc(unsigned id, unsigned add);
+    unsigned get(unsigned id);
+}
 
 template <class Bot, size_t BoardWidth = 256, size_t MutexLockWidth = 16>
 class Board : public std::enable_shared_from_this<Board<Bot, BoardWidth, MutexLockWidth>>
 {
 public:
     Board() : data(BoardWidth * BoardWidth, None) {
+        std::cerr << sizeof(Bot) << std::endl;
         static_assert(BoardWidth % MutexLockWidth == 0);
-        for (unsigned i = 0; i != BoardWidth * BoardWidth / 16; ++i) {
-            unsigned x = xorshf96();
-            unsigned y = xorshf96();
-            x %= BoardWidth;
-            y %= BoardWidth;
-            if (get(x, y) != None) {
-                continue;
-            }
-            get(x, y) = bots.size();
-            bots.push_back(QSharedPointer<Bot>::create(x, y));
-            bots.back()->way = xorshf96() % 4;
-        }
+        refill(QSharedPointer<Bot>::create());
         stat_data.emplace_back("Alive bots");
         stat_data.emplace_back("Bots per second");
-        for (unsigned i = 0; i != Bot::ComandsNum; ++i) {
-            stat_data.emplace_back(Bot::ComandNames[i] + (" (" + std::to_string(i) + ")"));
+        stat_data.emplace_back("Mutations per 100 new bots");
+        stat_data.emplace_back("Processing Depth");
+        for (unsigned i = 0; i != Bot::CommandsNum; ++i) {
+            stat_data.emplace_back(Bot::CommandNames[i] + (" (" + std::to_string(i) + ")"));
             stat_data.back().push(0);
         }
+        for (unsigned i = 0; i != Bot::kVarTypesNum; ++i) {
+            stat_data.emplace_back(std::string("Val ") + Bot::VarTypeNames[i] + " (" + std::to_string(i) + ")");
+            stat_data.back().push(0);
+        }
+        Stat::init(Bot::CommandsNum + Bot::kVarTypesNum + kStatNum);
     }
 
     ~Board() {
-        killed = true;
         std::unique_lock lock(main_mx);
+        killed = true;
         running_threads += threads.size();
         cv_start.notify_all();
         while (killed) {
@@ -61,15 +71,91 @@ public:
         }
     }
 
+    void BotStatInc(unsigned id) {
+        if (get_current_time() % kStatPeriod == 0) {
+            Stat::inc(id);
+        }
+    }
+    void BotStatInc(unsigned id, unsigned add) {
+        if (get_current_time() % kStatPeriod == 0) {
+            Stat::inc(id, add);
+        }
+    }
+    void BotVarTypesStatInc(unsigned id) {
+        BotStatInc(id + Bot::CommandsNum + kStatNum);
+    }
+    unsigned BotVarTypesStatGet(unsigned id) {
+        return Stat::get(id + Bot::CommandsNum + kStatNum);
+    }
+    void BotCommandStatInc(unsigned id) {
+        BotStatInc(id + kStatNum);
+    }
+    unsigned BotCommandStatGet(unsigned id) {
+        return Stat::get(id + kStatNum);
+    }
+
+    void refill(const QSharedPointer<Bot> &bot) {
+        if (!bot) {
+            throw std::runtime_error("No bot");
+        }
+        if (running_threads > 0) {
+            throw std::runtime_error("Do not permitted while other threads running");
+        }
+        std::unique_lock lock(main_mx);
+        for (auto && mx : mxs) {
+            mx.lock();
+        }
+        bots.clear();
+        for (auto && nb : new_bots) {
+            nb.clear();
+        }
+        std::fill(data.begin(), data.end(), None);
+        for (unsigned i = 0; i != BoardWidth * BoardWidth / 16; ++i) {
+            unsigned x = xorshf96();
+            unsigned y = xorshf96();
+            x %= BoardWidth;
+            y %= BoardWidth;
+            if (get(x, y) != None) {
+                continue;
+            }
+            get(x, y) = bots.size();
+            bots.push_back(QSharedPointer<Bot>::create(*this, *bot, x, y, 0));
+            bots.back()->way = xorshf96() % 4;
+        }
+        for (auto && mx : mxs) {
+            mx.unlock();
+        }
+    }
+
+    void part_kill() {
+        if (running_threads > 0) {
+            throw std::runtime_error("Do not permitted while other threads running");
+        }
+        std::unique_lock lock(main_mx);
+        for (auto && mx : mxs) {
+            mx.lock();
+        }
+        for (auto && bot : bots) {
+            if (xorshf96() % 2 == 0) {
+                bot->alive = false;
+            }
+        }
+        for (auto && mx : mxs) {
+            mx.unlock();
+        }
+    }
+
     void run_threads(size_t num) {
-        if (num > BoardWidth / MutexLockWidth / 2) {
+        std::unique_lock main_lock(main_mx);
+        if (threads.size() + num > BoardWidth / MutexLockWidth / 2) {
             std::cerr << "Too many threads\n";
         }
-        std::unique_lock main_lock(main_mx);
+        Stat::add_threads(num);
         auto self = this->shared_from_this();
         while (num-- > 0) {
             new_bots.emplace_back();
-            threads.emplace_back([self, thread_id=threads.size()]() {
+            threads.emplace_back([self, tid=threads.size()]() {
+                set_thread_id(tid);
                 std::unique_lock main_lock(self->main_mx);
                 while (true) {
                     while (!self->killed && self->tasks.empty()) {
@@ -83,24 +169,27 @@ public:
                     ++self->running_threads;
                     main_lock.unlock();
                     {
-                        size_t start_height = 0;
                         size_t wmutex = start_width / MutexLockWidth;
-                        size_t wmutex2 = wmutex + 1;
-                        if (wmutex2 == self->mxs.size()) {
-                            wmutex2 = 0;
-                        }
-                        std::unique_lock lock1(self->mxs[wmutex]);
-                        std::unique_lock lock2(self->mxs[wmutex2]);
-                        while (start_height < BoardWidth) {
-                            for (size_t i = 0; i != MutexLockWidth; ++i) {
-                                for (size_t j = 0; j != MutexLockWidth; ++j) {
-                                    auto id = self->get(start_width + i, start_height + j);
-                                    if (id != None) {
-                                        self->bots[id]->Step(*self, thread_id);
-                                    }
+                        std::unique_lock lock1(self->mxs[wmutex % self->mxs.size()]);
+                        std::unique_lock lock2(self->mxs[(wmutex + 1) % self->mxs.size()]);
+                        for (size_t i = 0; i != BoardWidth; ++i) {
+                            for (size_t j = 0; j != MutexLockWidth; ++j) {
+                                auto id = self->get(start_width + j, i);
+                                if (id != None) {
+                                    self->bots[id]->Step(*self);
                                 }
                             }
-                            start_height += MutexLockWidth;
+                        }
+                        lock1.unlock();
+                        start_width += MutexLockWidth;
+                        std::unique_lock lock3(self->mxs[(wmutex + 2) % self->mxs.size()]);
+                        for (size_t i = 0; i != BoardWidth; ++i) {
+                            for (size_t j = 0; j != MutexLockWidth; ++j) {
+                                auto id = self->get(start_width + j, i);
+                                if (id != None) {
+                                    self->bots[id]->Step(*self);
+                                }
+                            }
                         }
                     }
                     main_lock.lock();
@@ -141,11 +230,12 @@ public:
 
     void make_steps_() {
         std::unique_lock main_lock(main_mx);
-        auto start_time = std::chrono::system_clock::now();
-        for (size_t i = 0; i < BoardWidth; i += 2 * MutexLockWidth) {
-            tasks.push_back(i);
+        std::chrono::time_point<std::chrono::system_clock> start_time;
+        if (steps % kStatPeriod == 0) {
+            start_time = std::chrono::system_clock::now();
         }
-        for (size_t i = MutexLockWidth; i < BoardWidth; i += 2 * MutexLockWidth) {
+        for (size_t i = 0; i < BoardWidth; i += 2 * MutexLockWidth) {
+            /// Thread should process all from i to i + 2 * MutexLockWidth
             tasks.push_back(i);
         }
         cv_start.notify_all();
@@ -153,15 +243,22 @@ public:
             cv_finish.wait(main_lock);
         }
         size_t num_of_not_alive = 0;
+        size_t num_of_not_on_board = 0;
         for (auto && bot : bots) {
             if (!bot->isAlive()) {
                 ++num_of_not_alive;
             }
+            if (bot->x == std::numeric_limits<decltype(bot->x)>::max()) {
+                ++num_of_not_on_board;
+            }
         }
-        if (num_of_not_alive * 2 > bots.size()) {
+        auto num_of_alive = bots.size() - num_of_not_alive;
+        if (num_of_not_on_board * 2 > bots.size()) {
             comperess();
         }
+        size_t num_of_new_bots = 0;
         for (auto && nbots : new_bots) {
+            num_of_new_bots += nbots.size();
             for (auto && bot : nbots) {
                 if (get(bot->x, bot->y) != None) {
                     continue;
@@ -171,16 +268,29 @@ public:
             }
             nbots.clear();
         }
-        auto end_time = std::chrono::system_clock::now();
         if (steps % kStatPeriod == 0) {
+            auto end_time = std::chrono::system_clock::now();
             auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
             if (diff == 0) {
                 diff = 1;
             }
-            stat_data[kStatBPS].push(1000000000 * (bots.size() - num_of_not_alive) / diff);
-            stat_data[kStatAlive].push(bots.size() - num_of_not_alive);
-            for (unsigned i = 0; i != Bot::ComandsNum; ++i) {
-                stat_data[kStatNum + i].push(Bot::getStat(i) / kStatPeriod);
+            stat_data[kStatBPS].push(1000000000 * num_of_alive / diff);
+            stat_data[kStatAlive].push(num_of_alive);
+            for (unsigned i = 0; i != Bot::CommandsNum; ++i) {
+                stat_data[kStatNum + i].push(BotCommandStatGet(i));
+            }
+            for (unsigned i = 0; i != Bot::kVarTypesNum; ++i) {
+                stat_data[kStatNum + Bot::CommandsNum + i].push(BotVarTypesStatGet(i));
+            }
+            if (num_of_new_bots == 0) {
+                stat_data[kStatMutations].push(0);
+            } else {
+                stat_data[kStatMutations].push((Stat::get(kStatMutations) * 100) / num_of_new_bots);
+            }
+            if (num_of_alive != 0) {
+                stat_data[kStatProcessDepth].push(Stat::get(kStatProcessDepth) / num_of_alive);
+            } else {
+                stat_data[kStatProcessDepth].push(0);
             }
         }
         ++steps;
@@ -189,17 +299,15 @@ public:
     void stat() {
         comperess();
         std::cerr << bots.size() << std::endl;
-        double sum = 0, sage = 0;
-        std::vector<unsigned> a(Bot::ComandsNum);
+        double sum = 0;
+        std::vector<unsigned> a(Bot::CommandsNum);
         for (auto && bot : bots) {
             sum += bot->energy;
-            sage += bot->age;
-            for (auto g : bot->genome) {
+            for (auto g : bot->memory) {
                 ++a[g % a.size()];
             }
         }
         std::cerr << sum / bots.size() << std::endl;
-        std::cerr << sage / bots.size() << std::endl;
         std::cerr << steps << std::endl;
         for (auto elem : a) {
             std::cerr << elem << ' ';
@@ -211,7 +319,8 @@ public:
         size_t to_write = 0;
         std::vector<unsigned> ids(bots.size(), None);
         for (size_t i = 0; i != bots.size(); ++i) {
-            if (bots[i]->x == -1 && bots[i]->y == -1) {
+            if (bots[i]->x == std::numeric_limits<decltype(bots[i]->x)>::max() &&
+                bots[i]->y == std::numeric_limits<decltype(bots[i]->x)>::max()) {
                 continue;
             } else if (i != to_write) {
                 ids[i] = to_write;
@@ -248,22 +357,13 @@ public:
         bot.y = new_y;
     }
 
-    void new_bot(size_t thread_id, const Bot &bot, int dx, int dy, unsigned char acc) {
+    void new_bot(const Bot &bot, int dx, int dy, unsigned char acc) {
         unsigned new_x = (bot.x + dx) % BoardWidth;
         unsigned new_y = (bot.y + dy) % BoardWidth;
         if (get(new_x, new_y) != None) {
             return;
         }
-        new_bots[thread_id].push_back(QSharedPointer<Bot>::create(bot, new_x, new_y, acc));
-    }
-
-    void new_bot(size_t thread_id, const Bot &bot1, const Bot &bot2, int dx, int dy, unsigned char acc) {
-        unsigned new_x = (bot1.x + dx) % BoardWidth;
-        unsigned new_y = (bot1.y + dy) % BoardWidth;
-        if (get(new_x, new_y) != None) {
-            return;
-        }
-        new_bots[thread_id].push_back(QSharedPointer<Bot>::create(bot1, bot2, new_x, new_y, acc));
+        new_bots[get_thread_id()].push_back(QSharedPointer<Bot>::create(*this, bot, new_x, new_y, acc));
     }
 
     auto& getBot(unsigned bot_id) {

@@ -5,7 +5,7 @@
 #include <QClipboard>
 #include <QKeyEvent>
 
-#include <math.h>
+#include <cmath>
 
 const double DefaultCenterX = 128;
 const double DefaultCenterY = 128;
@@ -90,82 +90,98 @@ void ImageW::keyPressEvent(QKeyEvent *event)
         return;
     }
     switch (event->key()) {
-    case Qt::Key_6:
-        steps = 100000;
-        board->make_steps(steps);
-        rerender();
-        break;
-    case Qt::Key_5:
-        steps = 10000;
-        board->make_steps(steps);
-        rerender();
-        break;
-    case Qt::Key_4:
-        steps = 1000;
-        board->make_steps(steps);
-        rerender();
-        break;
-    case Qt::Key_3:
-        steps = 100;
-        board->make_steps(steps);
-        rerender();
-        break;
-    case Qt::Key_2:
-        steps = 10;
-        board->make_steps(steps);
-        rerender();
-        break;
-    case Qt::Key_1:
-        steps = 1;
-        board->make_steps(steps);
-        rerender();
-        break;
-    case Qt::Key_R:
-        ++board->rendertype;
-        board->rendertype %= 5;
-        rerender();
-        break;
-    case Qt::Key_W:
-        board->wayrender = !board->wayrender;
-        rerender();
-        break;
-    case Qt::Key_N:
-        ++board->netrender;
-        board->netrender %= 3;
-        rerender();
-        break;
-    case Qt::Key_Q:
-        board->resource_zone = !board->resource_zone;
-        break;
-    case Qt::Key_S:
-        board->stat();
-        break;
-    case Qt::Key_A:
-        auto_mode = !auto_mode;
-        if (auto_mode) {
+        case Qt::Key_6:
+            steps = 100000;
+            board->make_steps(steps);
             rerender();
-        }
-        break;
-    case Qt::Key_Plus:
-        zoom(ZoomInFactor);
-        break;
-    case Qt::Key_Minus:
-        zoom(ZoomOutFactor);
-        break;
-    case Qt::Key_Left:
-        scroll(-ScrollStep, 0);
-        break;
-    case Qt::Key_Right:
-        scroll(+ScrollStep, 0);
-        break;
-    case Qt::Key_Down:
-        scroll(0, -ScrollStep);
-        break;
-    case Qt::Key_Up:
-        scroll(0, +ScrollStep);
-        break;
-    default:
-        QWidget::keyPressEvent(event);
+            break;
+        case Qt::Key_5:
+            steps = 10000;
+            board->make_steps(steps);
+            rerender();
+            break;
+        case Qt::Key_4:
+            steps = 1000;
+            board->make_steps(steps);
+            rerender();
+            break;
+        case Qt::Key_3:
+            steps = 100;
+            board->make_steps(steps);
+            rerender();
+            break;
+        case Qt::Key_2:
+            steps = 10;
+            board->make_steps(steps);
+            rerender();
+            break;
+        case Qt::Key_1:
+            steps = 1;
+            board->make_steps(steps);
+            rerender();
+            break;
+        case Qt::Key_R:
+            ++board->rendertype;
+            board->rendertype %= 5;
+            rerender();
+            break;
+        case Qt::Key_W:
+            board->wayrender = !board->wayrender;
+            rerender();
+            break;
+        case Qt::Key_N:
+            ++board->netrender;
+            board->netrender %= 3;
+            rerender();
+            break;
+        case Qt::Key_Q:
+            board->resource_zone = !board->resource_zone;
+            break;
+        case Qt::Key_S:
+            board->stat();
+            break;
+        case Qt::Key_A:
+            auto_mode = !auto_mode;
+            if (auto_mode) {
+                rerender();
+            }
+            break;
+        case Qt::Key_C:
+            if (dynamic_cast<MainWindow*>(parent()->parent())->toStat) {
+                QClipboard *clipboard = QApplication::clipboard();
+                clipboard->setText(dynamic_cast<MainWindow*>(parent()->parent())->toStat->info(true).c_str());
+            }
+            break;
+        case Qt::Key_F:
+            if (dynamic_cast<MainWindow*>(parent()->parent())->toStat) {
+                board->refill(dynamic_cast<MainWindow *>(parent()->parent())->toStat);
+                rerender();
+            }
+            break;
+        case Qt::Key_K:
+            board->part_kill();
+            rerender();
+            break;
+        case Qt::Key_Plus:
+            zoom(ZoomInFactor);
+            break;
+        case Qt::Key_Minus:
+            zoom(ZoomOutFactor);
+            break;
+        case Qt::Key_Left:
+            scroll(-ScrollStep, 0);
+            break;
+        case Qt::Key_Right:
+            scroll(+ScrollStep, 0);
+            break;
+        case Qt::Key_Down:
+            scroll(0, -ScrollStep);
+            break;
+        case Qt::Key_Up:
+            scroll(0, +ScrollStep);
+            break;
+        default:
+            QWidget::keyPressEvent(event);
     }
 }
 

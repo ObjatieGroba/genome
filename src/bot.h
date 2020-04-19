@@ -14,73 +14,64 @@ enum {
     Left = 3
 };
 
+enum {
+    TypeKill = 0,
+    TypeSynthesis = 1,
+    TypeMinerals = 2,
+    TypeGiveEnergy = 3,
+    TypeGiveMinerals = 4,
+};
+
 class Bot {
 public:
     Bot() {}
-    Bot(unsigned x_, unsigned y_) : x(x_), y(y_) {
-        memory = genome;
-    }
 
 private:
-    void mutate(unsigned acc) {
-        auto curr = 2 + acc;
-        while ((xorshf96() % curr) == 0) {
+    template <class Board>
+    void mutate(Board &board, unsigned accuracy) {
+        if (accuracy > 255) {
+            throw std::runtime_error("Bad accuracy");
+        }
+        accuracy = 2 + accuracy / 16;
+        while ((xorshf96() % accuracy) == 0) {
             auto point = xorshf96();
-            genome[point % genome.size()] = xorshf96();
-            if (xorshf96() % (2 + acc) == 0) {
+            memory[point % memory.size()] = xorshf96();
+            board.BotStatInc(kStatMutations);
+            if (xorshf96() % accuracy == 0) {
                 ++point;
-                genome[point % genome.size()] = xorshf96();
+                memory[point % memory.size()] = xorshf96();
+                board.BotStatInc(kStatMutations);
             }
-            curr += 2;
+            accuracy += 1;
         }
     }
 
 public:
-
-    Bot(const Bot& other, unsigned x_, unsigned y_, unsigned acc) : genome(other.genome), x(x_), y(y_), way(other.way) {
-        mutate(acc);
-        memory = genome;
-    }
-
-    Bot(const Bot& other1, const Bot& other2, unsigned x_, unsigned y_, unsigned acc) : x(x_), y(y_), way(other1.way) {
-        unsigned r = 0;
-        bool first = false;
-        for (unsigned i = 0; i != genome.size(); ++i) {
-            if (r == 0) {
-                r = xorshf96() % genomeSize;
-                first = !first;
-            }
-            --r;
-            genome[i] = first ? other1.genome[i] : other2.genome[i];
-        }
-        mutate(acc);
-        memory = genome;
+    template <class Board>
+    Bot(Board & board, const Bot& other, unsigned x_, unsigned y_, unsigned acc)
+        : memory(other.memory), x(x_), y(y_), way(other.way), max_live_time(board.get_current_time() + MaxAge) {
+        mutate(board, acc);
     }
 
     std::string info(bool olny_genome=false) const {
         std::stringstream ss;
         if (!olny_genome) {
-            ss << "Way: " << way << "\n";
+            ss << "Way: " << (unsigned)way << "\n";
             ss << "Energy: " << energy << "\n";
-            ss << "Minerals: " << minerals << "\n";
-            ss << "Age: " << age << "\n";
-            ss << "Pointer: " << pointer << "\n";
+            ss << "Minerals: " << (unsigned)minerals << "\n";
+            ss << "DeadTime: " << max_live_time << "\n";
+            ss << "Pointer: " << (unsigned)pointer << "\n";
             ss << "Messages: ";
             for (auto msg : msgs) {
-                ss << msg << ' ';
+                ss << (unsigned)msg << ' ';
             }
             ss << "\n";
-            ss << "Saved: " << saved.get() << "\n";
-            ss << "Genome: ";
-            for (auto g : genome) {
-                ss << (unsigned)g % ComandsNum << ' ';
-            }
             ss << "\nMemory: ";
             for (auto g : memory) {
-                ss << (unsigned)g % ComandsNum << ' ';
+                ss << (unsigned)g % CommandsNum << ' ';
             }
         } else {
-            for (auto g : genome) {
+            for (auto g : memory) {
                 ss << (unsigned)g << ' ';
             }
         }
@@ -88,10 +79,10 @@ public:
         return ss.str();
     }
 
-    bool similar(const Bot & other) const {
+    bool isSimilar(const Bot & other) const {
         char found = 0;
-        for (unsigned i = 0; i != genome.size(); ++i) {
-            if (genome[i] != other.genome[i]) {
+        for (unsigned i = 0; i != memory.size(); ++i) {
+            if (memory[i] != other.memory[i]) {
                 if (found == 3) {
                     return false;
                 }
@@ -101,6 +92,128 @@ public:
         return true;
     }
 
+    template <class Board>
+    Bot * getFrontBot(Board &board) {
+        unsigned data;
+        switch (way) {
+            case Top:
+                data = board.get(*this, 0, -1);
+                break;
+            case Right:
+                data = board.get(*this, 1, 0);
+                break;
+            case Bottom:
+                data = board.get(*this, 0, 1);
+                break;
+            case Left:
+                data = board.get(*this, -1, 0);
+                break;
+        }
+        if (data == None) {
+            return nullptr;
+        }
+        return board.getBot(data).get();
+    }
+
+    /// Variables
+    static constexpr auto kVarTypesNum = 19;
+    static constexpr std::array<const char *, kVarTypesNum> VarTypeNames {
+            "ByteConstant",
+            "Energy",
+            "Minerals",
+            "AliveFront",
+            "RelativeFront",
+            "MemAbs",
+            "MemRel",
+            "Way",
+            "SinceAttack",
+            "SinceMsg",
+            "LastSynthesized",
+            "LastMinerals",
+            "Age",
+            "MsgTop",
+            "MsgRight",
+            "MsgBottom",
+            "MsgLeft",
+            "UIntConstant",
+            "EmptyFront",
+    };
+    template <class Board>
+    unsigned int readVariable(Board &board) {
+        unsigned res;
+        auto var_type = memory[pointer] % kVarTypesNum;
+        board.BotVarTypesStatInc(var_type);
+        switch (var_type) {
+            case 0:  /// Byte Constant
+                ++pointer; pointer %= memory.size();
+                res =  memory[pointer]; break;
+            case 1:  /// Energy
+                res = std::max(0, energy); break;
+            case 2:  /// Minerals
+                res = minerals; break;
+            case 3:  /// Front bot alive
+            {
+                auto bot = getFrontBot(board);
+                if (bot == nullptr || !bot->isAlive()) {
+                    res = 0;
+                } else {
+                    res = 1;
+                }
+            }
+                break;
+            case 4:  /// Front bot relative
+            {
+                auto bot = getFrontBot(board);
+                if (bot == nullptr || !bot->isSimilar(*this)) {
+                    res = 0;
+                } else {
+                    res = 1;
+                }
+            }
+                break;
+            case 5:  /// Memory Absolute
+                ++pointer; pointer %= memory.size();
+                res = memory[memory[pointer] % memory.size()]; break;
+            case 6:  /// Memory Relative
+                ++pointer; pointer %= memory.size();
+                res = memory[(pointer + memory[pointer]) % memory.size()]; break;
+            case 7:  /// Current Way
+                res = way; break;
+            case 8:  /// Cycles since last attack
+                res = board.get_current_time() - last_under_attack; break;
+            case 9:  /// Cycles since last message
+                res = board.get_current_time() - last_msg_time; break;
+            case 10:  /// Last synthesized
+                res = lastSynthesized; break;
+            case 11:  /// Last minerals
+                res = lastMinerals; break;
+            case 12:  /// Age
+                res = max_live_time - board.get_current_time(); break;
+            case 13:  /// Msg
+            case 14:
+            case 15:
+            case 16:
+                res = msgs[var_type - 13]; break;
+            case 17:  /// UInt Constant
+                ++pointer; pointer %= memory.size();
+                res = memory[pointer];
+                ++pointer; pointer %= memory.size();
+                res <<= CHAR_BIT; res += memory[pointer];
+                ++pointer; pointer %= memory.size();
+                res <<= CHAR_BIT; res += memory[pointer];
+                ++pointer; pointer %= memory.size();
+                res <<= CHAR_BIT; res += memory[pointer];
+                break;
+            case 18:  /// Empty front cell
+                res = getFrontBot(board) == nullptr ? 1 : 0; break;
+            default:
+                throw std::runtime_error("Unknown variable type");
+        }
+        ++pointer; pointer %= memory.size();
+        return res;
+    }
+
+    /// Actions
     template <class Board>
     void Forward(Board &board) {
         --energy;
@@ -121,663 +234,342 @@ public:
     }
 
     template <class Board>
-    void CheckFront(Board &board) {
-        unsigned data;
-        switch (way) {
-        case Top:
-            data = board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = board.get(*this, -1, 0);
-            break;
+    void Synthesise(Board &board) {
+        auto e = lastSynthesized = board.syntes(*this);
+        if (minerals > 0) {
+            --minerals;
+            e *= 10;
         }
-        if (data == None) {
-            pointer += memory[(pointer + 1) % memory.size()];
-        } else if (similar(*board.getBot(data))) {
-            pointer += memory[(pointer + 2) % memory.size()];
-        } else {
-            pointer += memory[(pointer + 3) % memory.size()];
-        }
+        energy += e;
+        type = TypeSynthesis;
     }
 
     template <class Board>
-    void SaveGenome(Board &board) {
-        unsigned data;
-        switch (way) {
-        case Top:
-            data = board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = board.get(*this, -1, 0);
-            break;
+    void MakeMinerals(Board &board) {
+        auto got = board.minerals(*this);
+        if (got + minerals > 255) {
+            got = 255 - minerals;
         }
-        if (data == None) {
-            saved.reset();
-        } else {
-            saved = board.getBot(data);
-        }
+        minerals += (lastMinerals = got);
+        type = TypeMinerals;
     }
 
     template <class Board>
     void EatFront(Board &board) {
         unsigned * data;
         switch (way) {
-        case Top:
-            data = &board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = &board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = &board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = &board.get(*this, -1, 0);
-            break;
+            case Top:
+                data = &board.get(*this, 0, -1);
+                break;
+            case Right:
+                data = &board.get(*this, 1, 0);
+                break;
+            case Bottom:
+                data = &board.get(*this, 0, 1);
+                break;
+            case Left:
+                data = &board.get(*this, -1, 0);
+                break;
         }
         if (*data == None) {
             return;
         }
-        type = 0;
+        type = TypeKill;
         auto & bot = board.getBot(*data);
-        if (bot->isAlive() && bot->energy > 255) {
-            bot->energy -= 255;
+        if (bot->isAlive() && bot->energy > 1024) {
+            bot->energy -= 1024;
             bot->last_under_attack = board.get_current_time();
             return;
         }
-        minerals += bot->minerals;
-        if (minerals > 255) {
-            minerals = 255;
+        auto max_minerals = 255 - minerals;
+        if (bot->minerals < max_minerals) {
+            max_minerals = bot->minerals;
         }
+        minerals += max_minerals;
         energy += std::max(0, bot->energy) / 2;
         bot->energy = 0;
         bot->minerals = 0;
         bot->alive = false;
-        bot->x = -1;
-        bot->y = -1;
+        bot->x = std::numeric_limits<decltype(x)>::max();
+        bot->y = std::numeric_limits<decltype(y)>::max();
         *data = None;
     }
 
     template <class Board>
     void GiveEnergy(Board &board) {
-        unsigned * data;
-        switch (way) {
-        case Top:
-            data = &board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = &board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = &board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = &board.get(*this, -1, 0);
-            break;
+        auto bot = getFrontBot(board);
+        type = TypeGiveEnergy;
+        auto to_give = readVariable(board);
+        if (to_give > energy) {
+            to_give = energy;
         }
-        if (*data == None) {
-            return;
+        energy -= to_give;
+        if (bot != nullptr) {
+            bot->energy += to_give * 0.9;
         }
-        type = 3;
-        auto meta = std::min(energy, static_cast<int>(memory[(pointer + 1) % memory.size()]));
-        energy -= meta;
-        if (energy > 0) {
-            board.getBot(*data)->energy += meta * 0.9;
-        }
-        ++pointer;
-    }
-
-    template <class Board>
-    void SendMsg(Board &board) {
-        unsigned * data;
-        switch (way) {
-        case Top:
-            data = &board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = &board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = &board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = &board.get(*this, -1, 0);
-            break;
-        }
-        if (*data == None) {
-            return;
-        }
-        energy -= 1;
-        if (energy > 0) {
-            board.getBot(*data)->msgs[way] = memory[(pointer + 1) % memory.size()];
-            board.getBot(*data)->last_msg_time = board.get_current_time();
-        }
-        ++pointer;
     }
 
     template <class Board>
     void GiveMinerals(Board &board) {
-        unsigned * data;
-        switch (way) {
-        case Top:
-            data = &board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = &board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = &board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = &board.get(*this, -1, 0);
-            break;
+        auto bot = getFrontBot(board);
+        type = TypeGiveMinerals;
+        auto to_give = readVariable(board);
+        if (to_give > minerals) {
+            to_give = minerals;
         }
-        if (*data == None) {
-            return;
+        energy -= 1 + (to_give / 16);
+        if (bot != nullptr) {
+            if (255 - bot->minerals < to_give) {
+                to_give = 255 - bot->minerals;
+            }
+            bot->minerals += to_give;
         }
-        type = 4;
-        auto todo = std::min(minerals, static_cast<unsigned>(memory[(pointer + 1) % memory.size()]) / 2);
-        energy -= todo / 16;
-        minerals -= todo;
-        board.getBot(*data)->minerals += todo;
-        ++pointer;
+        minerals -= to_give;
     }
 
     template <class Board>
-    void NewBot(Board &board, size_t thread_id) {
-        auto acc = memory[(pointer + 1) % memory.size()] % 4;
-        ++pointer;
-        int need_energy = 100 + 20 + acc * 20;
+    void SendMsg(Board &board) {
+        auto bot = getFrontBot(board);
+        --energy;
+        if (bot != nullptr) {
+            bot->msgs[way] = readVariable(board);
+            bot->last_msg_time = board.get_current_time();
+        }
+    }
+
+    template <class Board>
+    void MakeNewBot(Board &board) {
+        auto accuracy = std::min(readVariable(board), 255u);
+        int need_energy = StartBotEnergy + accuracy;
         if (energy < need_energy) {
             energy = 0;
             return;
         }
         energy -= need_energy;
-        if (saved) {
-            switch (way) {
-            case Top:
-                board.new_bot(thread_id, *this, *saved, 0, -1, acc);
-                break;
-            case Right:
-                board.new_bot(thread_id, *this, *saved, 1, 0, acc);
-                break;
-            case Bottom:
-                board.new_bot(thread_id, *this, *saved, 0, 1, acc);
-                break;
-            case Left:
-                board.new_bot(thread_id, *this, *saved, -1, 0, acc);
-                break;
-            }
-        } else {
-            switch (way) {
-            case Top:
-                board.new_bot(thread_id, *this, 0, -1, acc);
-                break;
-            case Right:
-                board.new_bot(thread_id, *this, 1, 0, acc);
-                break;
-            case Bottom:
-                board.new_bot(thread_id, *this, 0, 1, acc);
-                break;
-            case Left:
-                board.new_bot(thread_id, *this, -1, 0, acc);
-                break;
-            }
-        }
-    }
-
-    void CheckEnergy() {
-        ++pointer;
-        pointer %= memory.size();
-        if (energy > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckWay() {
-        ++pointer;
-        pointer %= memory.size();
-        if (way == memory[pointer] % 4) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckSaved() {
-        ++pointer;
-        pointer %= memory.size();
-        if (bool(saved) != (memory[pointer] % 2 == 0)) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckMinerals() {
-        ++pointer;
-        pointer %= memory.size();
-        if (minerals > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckMsg() {
-        ++pointer;
-        pointer %= memory.size();
-        auto mway = memory[pointer] % 4;
-        if ((msgs[mway] >> CHAR_BIT) != 0) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void ReadMsg() {
-        ++pointer;
-        pointer %= memory.size();
-        auto mway = memory[pointer] % 4;
-        ++pointer;
-        pointer %= memory.size();
-        if (msgs[mway] > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-        msgs[mway] = 0;
-    }
-
-    void CheckAge() {
-        ++pointer;
-        pointer %= memory.size();
-        if ((age * 256) / MaxAge > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckLastSyntes() {
-        ++pointer;
-        pointer %= memory.size();
-        if (lastSyntes > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    template <class Board>
-    void CheckAttack(Board &board) {
-        ++pointer;
-        pointer %= memory.size();
-        auto diff = board.get_current_time() - last_under_attack;
-        if (diff > (memory[pointer]) % 4) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckLastMinerals() {
-        ++pointer;
-        pointer %= memory.size();
-        if (lastMinerals > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void CheckStore(bool abs) {
-        ++pointer;
-        pointer %= memory.size();
-        unsigned addr = memory[pointer] % memory.size();
-        if (!abs) {
-            addr += pointer;
-            addr %= memory.size();
-        }
-        ++pointer;
-        pointer %= memory.size();
-        if (memory[addr] > memory[pointer]) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
-        }
-    }
-
-    void Store(bool abs) {
-        ++pointer;
-        pointer %= memory.size();
-        unsigned addr = memory[pointer] % memory.size();
-        if (!abs) {
-            addr += pointer;
-            addr %= memory.size();
-        }
-        ++pointer;
-        pointer %= memory.size();
-        memory[addr] = memory[pointer];
-    }
-
-    void IncStore(bool abs) {
-        ++pointer;
-        pointer %= memory.size();
-        unsigned addr = memory[pointer] % memory.size();
-        if (!abs) {
-            addr += pointer;
-            addr %= memory.size();
-        }
-        ++pointer;
-        pointer %= memory.size();
-        memory[addr] += memory[pointer];
-    }
-
-    void CopyStore(bool abs) {
-        ++pointer;
-        pointer %= memory.size();
-        unsigned addrfrom = memory[pointer] % memory.size();
-        if (!abs) {
-            addrfrom += pointer;
-            addrfrom %= memory.size();
-        }
-        ++pointer;
-        pointer %= memory.size();
-        unsigned addrto = memory[pointer] % memory.size();
-        if (!abs) {
-            addrto += pointer;
-            addrto %= memory.size();
-        }
-        memory[addrto] += memory[addrfrom];
-    }
-
-    void MsgToStore(bool abs) {
-        ++pointer;
-        pointer %= memory.size();
-        auto mway = memory[pointer] % 4;
-        ++pointer;
-        pointer %= memory.size();
-        unsigned addr = memory[pointer] % memory.size();
-        if (!abs) {
-            addr += pointer;
-            addr %= memory.size();
-        }
-        memory[addr] = msgs[mway];
-        msgs[mway] = 0;
-    }
-
-    template <class Board>
-    void CheckAlive(Board &board) {
-        unsigned * data;
         switch (way) {
-        case Top:
-            data = &board.get(*this, 0, -1);
-            break;
-        case Right:
-            data = &board.get(*this, 1, 0);
-            break;
-        case Bottom:
-            data = &board.get(*this, 0, 1);
-            break;
-        case Left:
-            data = &board.get(*this, -1, 0);
-            break;
-        }
-        if (*data == None || !board.getBot(*data)->isAlive()) {
-            pointer += 1;
-        } else {
-            pointer += memory[(pointer + 1) % memory.size()];
+            case Top:
+                board.new_bot(*this, 0, -1, accuracy);
+                break;
+            case Right:
+                board.new_bot(*this, 1, 0, accuracy);
+                break;
+            case Bottom:
+                board.new_bot(*this, 0, 1, accuracy);
+                break;
+            case Left:
+                board.new_bot(*this, -1, 0, accuracy);
+                break;
         }
     }
 
+    /// Branches
+    template <class Board>
+    void If(Board &board, unsigned if_type) {
+        auto left = readVariable(board);
+        auto right = readVariable(board);
+        bool truth;
+        switch (if_type) {
+            case 0:  /// Greater or equal
+                truth = left >= right; break;
+            case 1:  /// Equal
+                truth = left == right; break;
+            case 2:  /// Less
+                truth = left < right; break;
+            default:
+                throw std::runtime_error("No such if type");
+        }
+        AbsoluteJump(board, !truth);
+    }
+
+    /// Extra
+    template <class Board>
+    void RelativeJump(Board &board, bool skip = false) {
+        auto size = readVariable(board);
+        if (!skip) {
+            pointer += size;
+            pointer %= memory.size();
+        }
+    }
 
     template <class Board>
-    void Syntes(Board &board) {
-        auto e = lastSyntes = board.syntes(*this);
-        if (minerals > 0) {
-            --minerals;
-            e *= 10;
+    void AbsoluteJump(Board &board, bool skip = false) {
+        auto size = readVariable(board);
+        if (!skip) {
+            pointer = size % memory.size();
         }
-        energy += e;
-        type = 1;
     }
 
     template <class Board>
-    void Minerals(Board &board) {
-        minerals += (lastMinerals = board.minerals(*this));
-        if (minerals > 255) {
-            minerals = 255;
+    void Store(Board &board, bool abs) {
+        auto addr = readVariable(board);
+        auto val = readVariable(board);
+        if (!abs) {
+            addr += pointer;
         }
-        type = 2;
+        memory[addr % memory.size()] = val;
     }
 
-    static constexpr unsigned ComandsNum = 38;
+    template <class Board>
+    void IncStore(Board &board, bool abs) {
+        auto addr = readVariable(board);
+        auto val = readVariable(board);
+        if (!abs) {
+            addr += pointer;
+        }
+        memory[addr % memory.size()] += val;
+    }
+
+    template <class Board>
+    void CopyStore(Board &board, bool abs) {
+        auto addr_from = readVariable(board);
+        auto addr_to = readVariable(board);
+        if (!abs) {
+            addr_from += pointer;
+            addr_to += pointer;
+        }
+        memory[addr_to % memory.size()] = memory[addr_from % memory.size()];
+    }
+
+    static constexpr unsigned StartBotEnergy = 100;
+    static constexpr unsigned CommandsNum = 22;
     static constexpr unsigned MaxAge = 1u << 13u;
-    static constexpr unsigned MaxDepth = 32;
-    static constexpr unsigned genomeSize = 64;
-    static constexpr unsigned memorySize = genomeSize;
-    static std::array<unsigned, ComandsNum> stats;
-    static constexpr std::array<const char *, ComandsNum> ComandNames {
+    static constexpr unsigned MaxDepth = 64;
+    static constexpr unsigned genomeSize = 128;
+    static constexpr std::array<const char *, CommandsNum> CommandNames {
         "Lazy",
         "Forward",
         "Left",
         "Right",
-        "Check",
-        "RelJmp",
-        "Eat",
-        "NewBot",
-        "CheckEnergy",
-        "Syntes",
+        "Synthesise",
+        "MakeMinerals",
+        "EatFront",
         "GiveEnergy",
-        "Minerals",
         "GiveMinerals",
-        "CheckAlive",
         "SendMsg",
-        "CheckMsg",
-        "AbsJmp",
-        "CheckAge",
-        "CheckMinerals",
+        "MakeNewBot",
+        "IfGEq",
+        "IfEq",
+        "IfLe",
+        "RelativeJump",
+        "AbsoluteJump",
+        "Store",
         "StoreAbs",
-        "StoreRel",
-        "CheckStoreAbs",
-        "CheckStoreRel",
+        "IncStore",
         "IncStoreAbs",
-        "IncStoreRel",
+        "CopyStore",
         "CopyStoreAbs",
-        "CopyStoreRel",
-        "MsgStoreAbs",
-        "MsgStore",
-        "CheckWay",
-        "SaveGenome",
-        "CheckSaved",
-        "ResetSaved",
-        "ClearMessage",
-        "CheckLastSyn",
-        "CheckLastMin",
-        "ReadMsg",
-        "CheckWasAttacked",
     };
 
-    static auto getStat(unsigned i) {
-        auto tmp = stats[i];
-        stats[i] = 0;
-        return tmp;
+    template <class Board>
+    void Step(Board &board) {
+        board.BotStatInc(kStatProcessDepth, MakeStep(board));
     }
 
     template <class Board>
-    void Step(Board &board, size_t thread_id) {
+    unsigned MakeStep(Board &board) {
         if (!isAlive()) {
-            return;
+            return 0;
         }
-        ++age;
-        if (age == MaxAge) {
+        if (board.get_current_time() == max_live_time) {
             alive = false;
-            return;
+            return 0;
         }
         unsigned num = MaxDepth;
         while (--num) {
-            ++pointer;
-            if (pointer >= memory.size()) {
-                pointer %= memory.size();
-            }
             if (energy <= 0) {
                 alive = false;
-                return;
+                return MaxDepth - num;
             }
             --energy;
-            ++stats[memory[pointer] % ComandsNum];
-            switch (memory[pointer] % ComandsNum) {
-            case 0: /// Lazy
-                return;
-            case 1: /// Forward step
-                Forward(board);
-                return;
-            case 2: /// Left rotate
-                way += Left;
-                way %= 4;
-                break;
-            case 3: /// Right rotate
-                way += Right;
-                way %= 4;
-                break;
-            case 4: /// Check Front objects. NoneJmp OtherJmp RelativeJmp
-                CheckFront(board);
-                break;
-            case 5: /// Rel Jmp
-                pointer += memory[(pointer + 1) % memory.size()];
-                break;
-            case 6: /// Eat Front
-                EatFront(board);
-                return;
-            case 7: /// New bot
-                NewBot(board, thread_id);
-                return;
-            case 8: /// Check Energy. NeedEergy NotJmp Yes
-                CheckEnergy();
-                break;
-            case 9:
-                Syntes(board);
-                return;
-            case 10:
-                GiveEnergy(board);
-                break;
-            case 11:
-                Minerals(board);
-                return;
-            case 12:
-                GiveMinerals(board);
-                break;
-            case 13: /// Check Alive. YesJmp No
-                CheckAlive(board);
-                break;
-            case 14:
-                SendMsg(board);
-                break;
-            case 15:
-                CheckMsg();
-                break;
-            case 16: /// Abs Jmp
-                pointer = memory[(pointer + 1) % memory.size()] % memory.size();
-                break;
-            case 17:
-                CheckAge();
-                break;
-            case 18: /// Check Minerals. NeedEnergy NotJmp Yes
-                CheckMinerals();
-                break;
-            case 19:
-            case 20:
-                Store(memory[pointer] % 2);
-                break;
-            case 21:
-            case 22:
-                CheckStore(memory[pointer] % 2);
-                break;
-            case 23:
-            case 24:
-                IncStore(memory[pointer] % 2);
-                break;
-            case 25:
-            case 26:
-                CopyStore(memory[pointer] % 2);
-                break;
-            case 27:
-            case 28:
-                MsgToStore(memory[pointer] % 2);
-                break;
-            case 29:
-                CheckWay();
-                break;
-            case 30:
-                SaveGenome(board);
-                break;
-            case 31:
-                CheckSaved();
-                break;
-            case 32:  /// Reset saved genome
-                saved.reset();
-                break;
-            case 33:  /// Clear messages
-                msgs.fill(0);
-                break;
-            case 34:
-                CheckLastSyntes();
-                break;
-            case 35:
-                CheckLastMinerals();
-                break;
-            case 36:
-                ReadMsg();
-                break;
-            case 37:
-                CheckAttack(board);
-                break;
+            auto cmd = memory[pointer] % CommandsNum;
+            // std::cerr << CommandNames[cmd] << ' ' << pointer << '\n';
+            board.BotCommandStatInc(cmd);
+            ++pointer; pointer %= memory.size();
+            switch (cmd) {
+                case 0:  /// Lazy
+                    return MaxDepth - num;
+                case 1:  /// Forward step
+                    Forward(board);
+                    return MaxDepth - num;
+                case 2:  /// Left rotate
+                    way += Left;
+                    way %= 4;
+                    break;
+                case 3:  /// Right rotate
+                    way += Right;
+                    way %= 4;
+                    break;
+                case 4:  /// Synthesise
+                    Synthesise(board);
+                    return MaxDepth - num;
+                case 5:  /// MakeMinerals
+                    MakeMinerals(board);
+                    return MaxDepth - num;
+                case 6:  /// Eat Front
+                    EatFront(board);
+                    return MaxDepth - num;
+                case 7:  /// GiveEnergy
+                    GiveEnergy(board);
+                    break;
+                case 8:  /// GiveMinerals
+                    GiveMinerals(board);
+                    break;
+                case 9:  /// SendMsg
+                    SendMsg(board);
+                    break;
+                case 10:  /// MakeNewBot
+                    MakeNewBot(board);
+                    return MaxDepth - num;
+                case 11:  /// If GEq
+                case 12:  ///    Eq
+                case 13:  ///    Le
+                    If(board, cmd - 11);
+                    break;
+                case 14:  /// RelativeJump
+                    RelativeJump(board);
+                    break;
+                case 15:  /// AbsoluteJump
+                    AbsoluteJump(board);
+                    break;
+                case 16:  /// Store
+                case 17:
+                    Store(board, cmd - 16);
+                    break;
+                case 18:  /// IncStore
+                case 19:
+                    IncStore(board, cmd - 18);
+                    break;
+                case 20:  /// CopyStore
+                case 21:
+                    CopyStore(board, cmd - 20);
+                    break;
+                default:
+                    throw std::runtime_error("Unknown command");
             }
         }
+        return MaxDepth - num;
     }
 
     bool isAlive() const {
         return alive;
     }
 
-    // std::array<unsigned char, 32> genome{6, 13, 17, 8, 250, 5, 7, 11, 18, 8, 11, 1, 5, 12, 2, 4, 9, 9, 9, 10, 1, 12, 9, 7, 9, 4, 9, 10, 3, 8, 8, 9};
-    // std::array<unsigned char, 32> genome{4, 10, 3, 8, 250, 6, 7, 2, 18, 8, 9, 1, 5, 11, 9, 9, 9, 9, 9, 8, 10, 9, 1, 12, 11, 4, 9, 13, 10, 6, 7, 2};
-    // std::array<unsigned char, 32> genome{4, 10, 3, 8, 250, 6, 7, 2, 18, 8, 9, 1, 5, 11, 9, 9, 9, 11, 9, 8, 10, 9, 1, 12, 11, 4, 9, 13, 10, 6, 7, 2};
-    // std::array<unsigned char, 32> genome{4, 10, 3, 8, 250, 6, 7, 2, 18, 8, 9, 1, 5, 11, 9, 9, 9, 9, 9, 8, 10, 9, 1, 12, 11, 4, 9, 13, 10, 6, 7, 2};
-    std::array<unsigned char, genomeSize> genome{14, 9, 242, 8, 215, 14, 7, 194, 56, 77, 9, 221, 73, 90, 249, 62, 89, 120, 34, 116, 52, 54, 11, 11, 163, 85, 9, 11, 91, 146, 173, 163, 16, 222, 193, 213, 98, 86, 195, 241, 80, 228, 39, 163, 81, 112, 93, 134, 30, 78, 42, 77, 155, 21, 95, 245, 11, 140, 188, 205, 213, 215, 150, 39};
-//    std::array<unsigned char, genomeSize> genome{4,2,17,8,250,5,7,3,5,18,9,1,5,11,9,9,9,9,9,6,2,9,11,11,11,11,9,9,9,9,1,9,16,0};
-    std::array<unsigned char, memorySize> memory;
+    // std::array<unsigned char, genomeSize> memory{5, 4, 4, 12, 18, 0, 1, 0, 22, 12, 4, 0, 1, 0, 17, 15, 0, 0, 2, 15, 0, 0, 13, 1, 0, 200, 0, 0, 10, 0, 16, 15, 0, 0};
+    std::array<unsigned char, genomeSize> memory{219, 137, 92, 188, 151, 0, 1, 133, 22, 12, 117, 0, 1, 0, 255, 160, 103, 233, 81, 155, 193, 146, 13, 1, 0, 135, 0, 255, 10, 0, 16, 114, 213, 67, 155, 87, 69, 29, 92, 209, 152, 243, 80, 112, 203, 168, 139, 83, 177, 238, 99, 139, 72, 214, 228, 166, 194, 241, 81, 236, 169, 124, 176, 47};
+
+    int energy = StartBotEnergy;
     unsigned x;
     unsigned y;
-    QSharedPointer<Bot> saved;
-    unsigned pointer = -1;
-    unsigned way = Top;
-    int energy = 100;
-    unsigned minerals = 0;
-    int type = 0;
-    unsigned age = 0;
-    unsigned lastSyntes;
-    unsigned lastMinerals;
-
-    std::array<unsigned short, 4> msgs{};
     unsigned last_msg_time = 0;
-
     unsigned last_under_attack = 0;
+    unsigned lastSynthesized;
+    unsigned max_live_time = 0;
+    std::array<unsigned char, 4> msgs{};
+    unsigned char pointer = 0;
+    unsigned char way = Top;
+    unsigned char minerals = 0;
+    unsigned char lastMinerals;
+    unsigned char type = 0;
 
     bool alive = true;
     bool isSelected = false;

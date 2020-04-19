@@ -19,8 +19,7 @@ MainWindow::MainWindow(QWidget *parent) :
 }
 
 
-MainWindow::~MainWindow()
-{
+MainWindow::~MainWindow() {
     delete ui;
 }
 
@@ -43,16 +42,6 @@ QSharedPointer<Bot> MainWindow::updateStatBot(QSharedPointer<Bot> bot) {
 }
 
 
-void MainWindow::keyPressEvent(QKeyEvent *event)
-{
-    switch (event->key()) {
-    case Qt::Key_C:
-        if (toStat) {
-            QClipboard *clipboard = QApplication::clipboard();
-            clipboard->setText(toStat->info(true).c_str());
-        }
-        break;
-    default:
-        ui->widget->keyPressEvent(event);
-    }
+void MainWindow::keyPressEvent(QKeyEvent *event) {
+    ui->widget->keyPressEvent(event);
 }
