@@ -71,6 +71,22 @@ public:
         }
     }
 
+    void random() {
+        std::unique_lock lock(main_mx);
+        if (running_threads > 0) {
+            throw std::runtime_error("Do not permitted while other threads running");
+        }
+        for (auto && mx : mxs) {
+            mx.lock();
+        }
+        for (auto && bot : bots) {
+            bot->random();
+        }
+        for (auto && mx : mxs) {
+            mx.unlock();
+        }
+    }
+
     void BotStatInc(unsigned id) {
         if (get_current_time() % kStatPeriod == 0) {
             Stat::inc(id);
@@ -98,10 +114,10 @@ public:
         if (!bot) {
             throw std::runtime_error("No bot");
         }
+        std::unique_lock lock(main_mx);
         if (running_threads > 0) {
             throw std::runtime_error("Do not permitted while other threads running");
         }
-        std::unique_lock lock(main_mx);
         for (auto && mx : mxs) {
             mx.lock();
         }
@@ -128,10 +144,10 @@ public:
     }
 
     void part_kill() {
+        std::unique_lock lock(main_mx);
         if (running_threads > 0) {
             throw std::runtime_error("Do not permitted while other threads running");
         }
-        std::unique_lock lock(main_mx);
         for (auto && mx : mxs) {
             mx.lock();
         }

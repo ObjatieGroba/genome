@@ -158,6 +158,10 @@ void ImageW::keyPressEvent(QKeyEvent *event)
                 rerender();
             }
             break;
+        case Qt::Key_J:
+            board->random();
+            rerender();
+            break;
         case Qt::Key_K:
             board->part_kill();
             rerender();

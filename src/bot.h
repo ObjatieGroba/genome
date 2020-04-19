@@ -79,6 +79,12 @@ public:
         return ss.str();
     }
 
+    void random() {
+        for (auto && elem : memory) {
+            elem = xorshf96();
+        }
+    }
+
     bool isSimilar(const Bot & other) const {
         char found = 0;
         for (unsigned i = 0; i != memory.size(); ++i) {
@@ -157,17 +163,17 @@ public:
                 if (bot == nullptr || !bot->isAlive()) {
                     res = 0;
                 } else {
-                    res = 1;
+                    res = 128;
                 }
             }
                 break;
             case 4:  /// Front bot relative
             {
                 auto bot = getFrontBot(board);
-                if (bot == nullptr || !bot->isSimilar(*this)) {
+                if (bot == nullptr || !bot->isAlive() || !bot->isSimilar(*this)) {
                     res = 0;
                 } else {
-                    res = 1;
+                    res = 128;
                 }
             }
                 break;
@@ -193,7 +199,9 @@ public:
             case 14:
             case 15:
             case 16:
-                res = msgs[var_type - 13]; break;
+                res = msgs[var_type - 13];
+                msgs[var_type - 13] = 0;
+                break;
             case 17:  /// UInt Constant
                 ++pointer; pointer %= memory.size();
                 res = memory[pointer];
@@ -205,7 +213,7 @@ public:
                 res <<= CHAR_BIT; res += memory[pointer];
                 break;
             case 18:  /// Empty front cell
-                res = getFrontBot(board) == nullptr ? 1 : 0; break;
+                res = getFrontBot(board) == nullptr ? 128 : 0; break;
             default:
                 throw std::runtime_error("Unknown variable type");
         }
@@ -332,7 +340,7 @@ public:
         auto bot = getFrontBot(board);
         --energy;
         if (bot != nullptr) {
-            bot->msgs[way] = readVariable(board);
+            bot->msgs[(way + 2) % 4] = readVariable(board);
             bot->last_msg_time = board.get_current_time();
         }
     }
@@ -554,8 +562,8 @@ public:
         return alive;
     }
 
-    // std::array<unsigned char, genomeSize> memory{5, 4, 4, 12, 18, 0, 1, 0, 22, 12, 4, 0, 1, 0, 17, 15, 0, 0, 2, 15, 0, 0, 13, 1, 0, 200, 0, 0, 10, 0, 16, 15, 0, 0};
-    std::array<unsigned char, genomeSize> memory{219, 137, 92, 188, 151, 0, 1, 133, 22, 12, 117, 0, 1, 0, 255, 160, 103, 233, 81, 155, 193, 146, 13, 1, 0, 135, 0, 255, 10, 0, 16, 114, 213, 67, 155, 87, 69, 29, 92, 209, 152, 243, 80, 112, 203, 168, 139, 83, 177, 238, 99, 139, 72, 214, 228, 166, 194, 241, 81, 236, 169, 124, 176, 47};
+    std::array<unsigned char, genomeSize> memory{5, 4, 4, 11, 18, 0, 1, 0, 22, 11, 4, 0, 1, 0, 17, 15, 0, 0, 2, 15, 0, 0, 13, 1, 0, 200, 0, 0, 10, 0, 16, 15, 0, 0};
+    // std::array<unsigned char, genomeSize> memory{219, 137, 92, 188, 151, 0, 1, 133, 22, 12, 117, 0, 1, 0, 255, 160, 103, 233, 81, 155, 193, 146, 13, 1, 0, 135, 0, 255, 10, 0, 16, 114, 213, 67, 155, 87, 69, 29, 92, 209, 152, 243, 80, 112, 203, 168, 139, 83, 177, 238, 99, 139, 72, 214, 228, 166, 194, 241, 81, 236, 169, 124, 176, 47};
 
     int energy = StartBotEnergy;
     unsigned x;
